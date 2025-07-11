@@ -26,14 +26,18 @@ import {
   Bot,
   CalendarDays,
   Users,
-  Zap
+  Zap,
+  ExternalLink
 } from 'lucide-react'
+import CalendarIntegration from './components/CalendarIntegration'
+import geminiAI from './services/geminiAI'
 import './App.css'
 
 function App() {
   // State management
   const [currentView, setCurrentView] = useState('dashboard')
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [calendarEvents, setCalendarEvents] = useState([])
   const [tasks, setTasks] = useState([
     {
       id: 1,
@@ -52,120 +56,69 @@ function App() {
       estimatedHours: 12,
       priority: 'critical',
       status: 'active',
-      description: 'Launch comprehensive digital marketing campaign for August',
+      description: 'Launch comprehensive digital marketing campaign for August neighborhood showcase',
       createdAt: new Date('2025-07-05')
     },
     {
       id: 3,
       title: 'November event planning',
-      deadline: 'ASAP',
-      estimatedHours: 6,
-      priority: 'urgent',
+      deadline: 'Oct 15',
+      estimatedHours: 15,
+      priority: 'important',
       status: 'active',
-      description: 'Plan and coordinate the November community event',
+      description: 'Plan and coordinate the November community engagement event',
       createdAt: new Date('2025-07-08')
     },
     {
       id: 4,
-      title: 'Cinematic video production',
-      deadline: 'End of month',
-      estimatedHours: 10,
-      priority: 'important',
+      title: 'Q3 marketing analysis',
+      deadline: 'Sep 30',
+      estimatedHours: 6,
+      priority: 'strategic',
       status: 'active',
-      description: 'Produce high-quality cinematic video for HAY brand',
-      createdAt: new Date('2025-07-03')
+      description: 'Analyze Q3 marketing performance and prepare insights for Q4 planning',
+      createdAt: new Date('2025-07-10')
     },
     {
       id: 5,
-      title: 'Focus groups preparation',
-      deadline: 'July-August',
-      estimatedHours: 4,
-      priority: 'important',
-      status: 'active',
-      description: 'Prepare materials and logistics for focus group sessions',
-      createdAt: new Date('2025-07-06')
-    },
-    {
-      id: 6,
-      title: 'Social media activation',
-      deadline: 'Ongoing',
-      estimatedHours: 2,
-      priority: 'strategic',
-      status: 'active',
-      description: 'Continuous social media content creation and engagement',
-      createdAt: new Date('2025-07-02')
-    },
-    {
-      id: 7,
       title: 'Website enhancements',
       deadline: 'TBD',
-      estimatedHours: 8,
+      estimatedHours: 10,
       priority: 'maintenance',
       status: 'active',
-      description: 'Improve website user experience and functionality',
-      createdAt: new Date('2025-07-04')
+      description: 'Implement user experience improvements and content updates',
+      createdAt: new Date('2025-07-11')
     }
   ])
 
-  // Calendar and coaching state
-  const [calendarView, setCalendarView] = useState('week')
-  const [selectedDate, setSelectedDate] = useState(new Date())
-  const [coachingHistory, setCoachingHistory] = useState([
+  // Calendar state
+  const [currentWeek, setCurrentWeek] = useState(new Date())
+  const [calendarView, setCalendarView] = useState('week') // week, month, day
+
+  // Task management state
+  const [showAddTask, setShowAddTask] = useState(false)
+  const [editingTask, setEditingTask] = useState(null)
+  const [taskFilter, setTaskFilter] = useState('all')
+  const [taskSearch, setTaskSearch] = useState('')
+  const [newTask, setNewTask] = useState({
+    title: '',
+    description: '',
+    deadline: '',
+    estimatedHours: 1,
+    priority: 'important'
+  })
+
+  // AI Coaching state
+  const [showCoachChat, setShowCoachChat] = useState(false)
+  const [chatMessages, setChatMessages] = useState([
     {
-      type: 'coach',
-      message: '👋 Hello! I\'m your AI productivity coach. I understand your role as Marketing Director at HAY and your current projects. How can I help you optimize your productivity today?',
+      type: 'ai',
+      message: "👋 Hello! I'm your AI productivity coach. I understand your role as Marketing Director at HAY and your current projects. How can I help you optimize your productivity today?",
       timestamp: new Date()
     }
   ])
-  const [coachingMessage, setCoachingMessage] = useState('')
-  const [isGeminiConnected, setIsGeminiConnected] = useState(false)
-  const [isGoogleCalendarConnected, setIsGoogleCalendarConnected] = useState(false)
-
-  // Task management state
-  const [showAddTaskModal, setShowAddTaskModal] = useState(false)
-  const [editingTask, setEditingTask] = useState(null)
-  const [taskFilter, setTaskFilter] = useState({ status: 'all', priority: 'all' })
-  const [searchTerm, setSearchTerm] = useState('')
-
-  // New task form state
-  const [newTask, setNewTask] = useState({
-    title: '',
-    deadline: '',
-    priority: 'important',
-    estimatedHours: 2,
-    description: ''
-  })
-
-  // Calendar events
-  const [calendarEvents] = useState([
-    {
-      id: 1,
-      title: 'Lemonade Agency Meeting',
-      start: '13:00',
-      end: '14:00',
-      date: '2025-07-11',
-      status: 'completed',
-      type: 'meeting'
-    },
-    {
-      id: 2,
-      title: 'JET Task List Session',
-      start: '14:00',
-      end: '15:00',
-      date: '2025-07-11',
-      status: 'current',
-      type: 'work'
-    },
-    {
-      id: 3,
-      title: 'August Campaign Brief',
-      start: '15:00',
-      end: '16:00',
-      date: '2025-07-11',
-      status: 'upcoming',
-      type: 'meeting'
-    }
-  ])
+  const [chatInput, setChatInput] = useState('')
+  const [isAIResponding, setIsAIResponding] = useState(false)
 
   // Update time every minute
   useEffect(() => {
@@ -175,227 +128,238 @@ function App() {
     return () => clearInterval(timer)
   }, [])
 
+  // Handle calendar events update
+  const handleCalendarEventsUpdate = (events) => {
+    setCalendarEvents(events)
+  }
+
+  // Get AI connection status
+  const getAIConnectionStatus = () => {
+    const hasGeminiKey = import.meta.env.VITE_GEMINI_API_KEY
+    const hasGoogleCreds = import.meta.env.VITE_GOOGLE_CLIENT_ID && import.meta.env.VITE_GOOGLE_API_KEY
+    
+    if (hasGeminiKey && hasGoogleCreds) {
+      return { status: 'Fully Connected', color: 'bg-green-100 text-green-800' }
+    } else if (hasGeminiKey) {
+      return { status: 'Gemini AI Connected', color: 'bg-blue-100 text-blue-800' }
+    } else if (hasGoogleCreds) {
+      return { status: 'Calendar Connected', color: 'bg-purple-100 text-purple-800' }
+    } else {
+      return { status: 'Offline Mode', color: 'bg-orange-100 text-orange-800' }
+    }
+  }
+
   // Priority colors
   const getPriorityColor = (priority) => {
-    const colors = {
-      critical: 'bg-red-100 text-red-800 border-red-200',
-      urgent: 'bg-orange-100 text-orange-800 border-orange-200',
-      important: 'bg-blue-100 text-blue-800 border-blue-200',
-      strategic: 'bg-purple-100 text-purple-800 border-purple-200',
-      maintenance: 'bg-gray-100 text-gray-800 border-gray-200'
+    switch (priority) {
+      case 'critical': return 'bg-red-100 text-red-800'
+      case 'urgent': return 'bg-orange-100 text-orange-800'
+      case 'important': return 'bg-blue-100 text-blue-800'
+      case 'strategic': return 'bg-purple-100 text-purple-800'
+      case 'maintenance': return 'bg-green-100 text-green-800'
+      default: return 'bg-gray-100 text-gray-800'
     }
-    return colors[priority] || colors.important
   }
 
   // Filter tasks
   const filteredTasks = tasks.filter(task => {
-    const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         task.description.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = taskFilter.status === 'all' || task.status === taskFilter.status
-    const matchesPriority = taskFilter.priority === 'all' || task.priority === taskFilter.priority
-    return matchesSearch && matchesStatus && matchesPriority
+    const matchesFilter = taskFilter === 'all' || task.status === taskFilter || task.priority === taskFilter
+    const matchesSearch = task.title.toLowerCase().includes(taskSearch.toLowerCase()) ||
+                         task.description.toLowerCase().includes(taskSearch.toLowerCase())
+    return matchesFilter && matchesSearch
   })
 
-  // Add new task
-  const addTask = () => {
-    if (!newTask.title.trim()) return
-
-    const task = {
-      id: Date.now(),
-      ...newTask,
-      status: 'active',
-      createdAt: new Date()
+  // Add task
+  const handleAddTask = () => {
+    if (newTask.title.trim()) {
+      const task = {
+        id: Date.now(),
+        ...newTask,
+        status: 'active',
+        createdAt: new Date()
+      }
+      setTasks([...tasks, task])
+      setNewTask({
+        title: '',
+        description: '',
+        deadline: '',
+        estimatedHours: 1,
+        priority: 'important'
+      })
+      setShowAddTask(false)
+      
+      // Send AI feedback
+      sendAIMessage(`I added a new task: "${task.title}". Can you help me prioritize this with my other HAY projects?`)
     }
-
-    setTasks(prev => [...prev, task])
-    setNewTask({ title: '', deadline: '', priority: 'important', estimatedHours: 2, description: '' })
-    setShowAddTaskModal(false)
-
-    // Add coaching response
-    setCoachingHistory(prev => [...prev, {
-      type: 'coach',
-      message: `✅ Great! I've added "${task.title}" to your task list. Based on your current workload, I recommend prioritizing this ${task.priority} task ${task.priority === 'critical' ? 'immediately' : 'in your next planning session'}.`,
-      timestamp: new Date()
-    }])
   }
 
   // Edit task
-  const editTask = (task) => {
+  const handleEditTask = (task) => {
     setEditingTask(task)
     setNewTask({
       title: task.title,
+      description: task.description,
       deadline: task.deadline,
-      priority: task.priority,
       estimatedHours: task.estimatedHours,
-      description: task.description
+      priority: task.priority
     })
-    setShowAddTaskModal(true)
+    setShowAddTask(true)
   }
 
   // Update task
-  const updateTask = () => {
-    if (!newTask.title.trim()) return
-
-    setTasks(prev => prev.map(task => 
-      task.id === editingTask.id 
-        ? { ...task, ...newTask }
-        : task
-    ))
-
-    setEditingTask(null)
-    setNewTask({ title: '', deadline: '', priority: 'important', estimatedHours: 2, description: '' })
-    setShowAddTaskModal(false)
-
-    setCoachingHistory(prev => [...prev, {
-      type: 'coach',
-      message: `📝 Task updated successfully! The changes to "${newTask.title}" have been saved.`,
-      timestamp: new Date()
-    }])
+  const handleUpdateTask = () => {
+    if (editingTask && newTask.title.trim()) {
+      setTasks(tasks.map(task => 
+        task.id === editingTask.id 
+          ? { ...task, ...newTask }
+          : task
+      ))
+      setEditingTask(null)
+      setNewTask({
+        title: '',
+        description: '',
+        deadline: '',
+        estimatedHours: 1,
+        priority: 'important'
+      })
+      setShowAddTask(false)
+    }
   }
 
   // Archive task
-  const archiveTask = (taskId) => {
-    setTasks(prev => prev.map(task => 
+  const handleArchiveTask = (taskId) => {
+    setTasks(tasks.map(task => 
       task.id === taskId 
         ? { ...task, status: 'archived' }
         : task
     ))
-
-    setCoachingHistory(prev => [...prev, {
-      type: 'coach',
-      message: `📦 Task archived. Great job staying organized! This helps keep your active task list focused.`,
-      timestamp: new Date()
-    }])
   }
 
   // Complete task
-  const completeTask = (taskId) => {
-    setTasks(prev => prev.map(task => 
+  const handleCompleteTask = (taskId) => {
+    setTasks(tasks.map(task => 
       task.id === taskId 
         ? { ...task, status: 'completed', completedAt: new Date() }
         : task
     ))
-
-    setCoachingHistory(prev => [...prev, {
-      type: 'coach',
-      message: `🎉 Excellent work! Task completed. You're making great progress on your HAY projects. Keep up the momentum!`,
-      timestamp: new Date()
-    }])
   }
 
-  // Send coaching message
-  const sendCoachingMessage = async () => {
-    if (!coachingMessage.trim()) return
+  // Delete task
+  const handleDeleteTask = (taskId) => {
+    setTasks(tasks.filter(task => task.id !== taskId))
+  }
 
-    // Add user message
-    setCoachingHistory(prev => [...prev, {
+  // Send AI message
+  const sendAIMessage = async (message) => {
+    if (!message.trim()) return
+
+    const userMessage = {
       type: 'user',
-      message: coachingMessage,
+      message: message,
       timestamp: new Date()
-    }])
+    }
 
-    // Simulate AI response (in real implementation, this would call Gemini API)
-    setTimeout(() => {
-      let response = ''
-      const msg = coachingMessage.toLowerCase()
+    setChatMessages(prev => [...prev, userMessage])
+    setChatInput('')
+    setIsAIResponding(true)
 
-      if (msg.includes('prioritize') || msg.includes('priority')) {
-        response = `📋 **Task Prioritization for Today:**
+    try {
+      const response = await geminiAI.sendMessage(message, {
+        role: 'Marketing Director at HAY',
+        projects: tasks.filter(t => t.status === 'active'),
+        calendarEvents: calendarEvents
+      })
 
-Based on your HAY projects and deadlines:
-
-1. **August digital campaign** (Critical, Due Aug 1-2) - Start immediately
-2. **November event planning** (Urgent, Due ASAP) - Schedule 2-hour block today
-3. **Sales office customer journey** (Critical, 2 weeks) - Begin research phase
-4. **Focus groups preparation** (Important) - Can wait until next week
-
-**Recommendation:** Block 3 hours this morning for the August campaign, then 2 hours this afternoon for November event planning.`
-      } else if (msg.includes('schedule') || msg.includes('time') || msg.includes('calendar')) {
-        response = `⏰ **Schedule Optimization:**
-
-**Optimal time blocks for today:**
-- **9:00-12:00 AM:** Deep work on August campaign (high energy)
-- **1:00-2:00 PM:** Lemonade Agency Meeting (scheduled)
-- **2:00-4:00 PM:** November event planning (post-lunch focus)
-- **4:00-5:00 PM:** Email and admin tasks
-
-**Pro tip:** Your most creative work happens in the morning - perfect for campaign development!`
-      } else if (msg.includes('break') || msg.includes('breakdown')) {
-        response = `🔧 **Task Breakdown Assistance:**
-
-Let me help break down your complex projects:
-
-**August Digital Campaign:**
-1. Define target audience and messaging (2h)
-2. Create content calendar and assets (4h)
-3. Set up tracking and analytics (2h)
-4. Launch and monitor performance (4h)
-
-**Sales Office Journey:**
-1. Research current customer touchpoints (3h)
-2. Map pain points and opportunities (2h)
-3. Design improved journey flow (3h)
-
-Would you like me to break down any specific project further?`
-      } else if (msg.includes('meeting') || msg.includes('schedule meeting')) {
-        response = `📅 **Meeting Scheduling Suggestions:**
-
-**Best times for meetings this week:**
-- **Tuesday 10:00 AM:** Strategy sessions (high energy)
-- **Wednesday 2:00 PM:** Client meetings (post-lunch alertness)
-- **Thursday 11:00 AM:** Team collaborations (mid-week momentum)
-
-**For HAY projects:**
-- Creative sessions: Morning (9-11 AM)
-- Stakeholder updates: Afternoon (2-4 PM)
-- Planning meetings: Mid-morning (10-12 PM)
-
-What type of meeting would you like to schedule?`
-      } else {
-        response = `I'm here to help you optimize your productivity as HAY's Marketing Director! I can assist with:
-
-🎯 **Task prioritization** - "Help me prioritize my tasks"
-⏰ **Schedule optimization** - "Optimize my workday"
-🔧 **Project breakdown** - "Break down the August campaign"
-📅 **Meeting scheduling** - "When should I schedule the team meeting?"
-📊 **Progress tracking** - "How am I doing on my deadlines?"
-
-What would you like help with today?`
-      }
-
-      setCoachingHistory(prev => [...prev, {
-        type: 'coach',
+      const aiMessage = {
+        type: 'ai',
         message: response,
         timestamp: new Date()
-      }])
+      }
 
-      setIsGeminiConnected(true)
-    }, 1000)
-
-    setCoachingMessage('')
+      setChatMessages(prev => [...prev, aiMessage])
+    } catch (error) {
+      console.error('AI response error:', error)
+      const errorMessage = {
+        type: 'ai',
+        message: "I'm having trouble connecting right now. Based on your HAY projects, I recommend focusing on the August digital campaign (Critical, Due Aug 1-2) as your top priority today. Would you like me to help you break this down into actionable steps?",
+        timestamp: new Date()
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsAIResponding(false)
+    }
   }
 
-  // Generate week view for calendar
-  const generateWeekView = () => {
-    const startOfWeek = new Date(selectedDate)
-    startOfWeek.setDate(selectedDate.getDate() - selectedDate.getDay())
+  // Handle chat submit
+  const handleChatSubmit = (e) => {
+    e.preventDefault()
+    sendAIMessage(chatInput)
+  }
+
+  // Get week days for calendar
+  const getWeekDays = () => {
+    const start = new Date(currentWeek)
+    start.setDate(start.getDate() - start.getDay()) // Start from Sunday
     
     const days = []
     for (let i = 0; i < 7; i++) {
-      const day = new Date(startOfWeek)
-      day.setDate(startOfWeek.getDate() + i)
+      const day = new Date(start)
+      day.setDate(start.getDate() + i)
       days.push(day)
     }
     return days
   }
 
-  // Time slots for calendar
-  const timeSlots = Array.from({ length: 13 }, (_, i) => {
-    const hour = i + 8 // Start from 8 AM
-    return `${hour.toString().padStart(2, '0')}:00`
-  })
+  // Get events for a specific day
+  const getEventsForDay = (date) => {
+    return calendarEvents.filter(event => {
+      const eventDate = new Date(event.start)
+      return eventDate.toDateString() === date.toDateString()
+    })
+  }
 
-  const weekDays = generateWeekView()
+  // Get today's schedule from calendar events
+  const getTodaysSchedule = () => {
+    const today = new Date()
+    const todaysEvents = getEventsForDay(today)
+    
+    // Combine with some default HAY schedule items
+    const defaultSchedule = [
+      {
+        id: 'default-1',
+        title: 'JET Task List Session',
+        startTime: '14:00',
+        endTime: '15:00',
+        status: 'current',
+        type: 'work'
+      },
+      {
+        id: 'default-2',
+        title: 'August Campaign Brief',
+        startTime: '15:00',
+        endTime: '16:00',
+        status: 'upcoming',
+        type: 'meeting'
+      }
+    ]
+
+    return [...todaysEvents, ...defaultSchedule].sort((a, b) => {
+      const timeA = a.startTime || a.start
+      const timeB = b.startTime || b.start
+      return timeA.localeCompare(timeB)
+    })
+  }
+
+  // Calculate task statistics
+  const taskStats = {
+    total: tasks.length,
+    active: tasks.filter(t => t.status === 'active').length,
+    completed: tasks.filter(t => t.status === 'completed').length,
+    critical: tasks.filter(t => t.priority === 'critical' && t.status === 'active').length,
+    totalHours: tasks.filter(t => t.status === 'active').reduce((sum, task) => sum + task.estimatedHours, 0)
+  }
+
+  const connectionStatus = getAIConnectionStatus()
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -404,55 +368,21 @@ What would you like help with today?`
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">HAY</span>
-                </div>
-                <h1 className="text-xl font-semibold text-gray-900">Productivity Dashboard</h1>
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-lg">HAY</span>
               </div>
-              
-              {/* Connection Status */}
-              <div className="flex items-center space-x-2 text-sm">
-                {isGeminiConnected ? (
-                  <Badge variant="outline" className="text-green-600 border-green-200">
-                    <Bot className="w-3 h-3 mr-1" />
-                    Gemini AI Connected
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-orange-600 border-orange-200">
-                    <AlertCircle className="w-3 h-3 mr-1" />
-                    Offline Mode
-                  </Badge>
-                )}
-                
-                {isGoogleCalendarConnected ? (
-                  <Badge variant="outline" className="text-green-600 border-green-200">
-                    <CalendarDays className="w-3 h-3 mr-1" />
-                    Calendar Synced
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-gray-600 border-gray-200">
-                    <Calendar className="w-3 h-3 mr-1" />
-                    Calendar Offline
-                  </Badge>
-                )}
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">Productivity Dashboard</h1>
+                <p className="text-sm text-gray-500">Enhanced with AI Coaching & Calendar Integration</p>
               </div>
             </div>
-
-            {/* Navigation */}
+            
             <div className="flex items-center space-x-4">
-              <Tabs value={currentView} onValueChange={setCurrentView} className="w-auto">
-                <TabsList>
-                  <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-                  <TabsTrigger value="calendar">Calendar</TabsTrigger>
-                  <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
-                </TabsList>
-              </Tabs>
-
-              {/* Current Time */}
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${connectionStatus.color}`}>
+                {connectionStatus.status}
+              </div>
               <div className="text-right">
-                <div className="text-sm text-gray-500">
+                <div className="text-sm font-medium text-gray-900">
                   {currentTime.toLocaleDateString('en-US', { 
                     weekday: 'long', 
                     year: 'numeric', 
@@ -460,7 +390,7 @@ What would you like help with today?`
                     day: 'numeric' 
                   })}
                 </div>
-                <div className="text-lg font-semibold">
+                <div className="text-lg font-bold text-blue-600">
                   {currentTime.toLocaleTimeString('en-US', { 
                     hour: 'numeric', 
                     minute: '2-digit',
@@ -473,593 +403,704 @@ What would you like help with today?`
         </div>
       </header>
 
+      {/* Navigation */}
+      <nav className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex space-x-8">
+            {[
+              { id: 'dashboard', label: 'Dashboard', icon: Target },
+              { id: 'calendar', label: 'Calendar', icon: Calendar },
+              { id: 'tasks', label: 'Tasks', icon: CheckCircle },
+              { id: 'analytics', label: 'Analytics', icon: TrendingUp }
+            ].map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setCurrentView(id)}
+                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+                  currentView === id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs value={currentView} onValueChange={setCurrentView}>
-          {/* Dashboard View */}
-          <TabsContent value="dashboard" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Today's Priorities */}
-              <div className="lg:col-span-2">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center">
-                      <Target className="w-5 h-5 mr-2" />
-                      Today's Priorities
-                    </CardTitle>
-                    <Badge variant="outline">Top 3</Badge>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {tasks.filter(t => t.status === 'active').slice(0, 3).map(task => (
-                      <div key={task.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex-1">
-                          <h3 className="font-medium">{task.title}</h3>
-                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
-                            <span>Due: {task.deadline}</span>
-                            <span>{task.estimatedHours}h estimated</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
+        {currentView === 'dashboard' && (
+          <div className="space-y-8">
+            {/* Quick Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Active Tasks</p>
+                      <p className="text-2xl font-bold text-gray-900">{taskStats.active}</p>
+                    </div>
+                    <CheckCircle className="w-8 h-8 text-blue-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Critical Items</p>
+                      <p className="text-2xl font-bold text-red-600">{taskStats.critical}</p>
+                    </div>
+                    <AlertCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Calendar Events</p>
+                      <p className="text-2xl font-bold text-purple-600">{calendarEvents.length}</p>
+                    </div>
+                    <CalendarDays className="w-8 h-8 text-purple-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Est. Hours</p>
+                      <p className="text-2xl font-bold text-green-600">{taskStats.totalHours}h</p>
+                    </div>
+                    <Clock className="w-8 h-8 text-green-600" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Google Calendar Integration */}
+            <CalendarIntegration onEventsUpdate={handleCalendarEventsUpdate} />
+
+            {/* Priority Tasks */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="flex items-center space-x-2">
+                  <Target className="w-5 h-5" />
+                  <span>Priority Tasks</span>
+                </CardTitle>
+                <Button 
+                  onClick={() => setShowAddTask(true)}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Priority Task
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {filteredTasks.filter(task => task.status === 'active').slice(0, 5).map((task) => (
+                    <div key={task.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3">
+                          <h3 className="font-medium text-gray-900">{task.title}</h3>
                           <Badge className={getPriorityColor(task.priority)}>
                             {task.priority}
                           </Badge>
-                          <Button size="sm" variant="outline" onClick={() => editTask(task)}>
-                            <Edit className="w-4 h-4" />
-                          </Button>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                        <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
+                          <span>📅 {task.deadline}</span>
+                          <span>⏱️ {task.estimatedHours}h</span>
                         </div>
                       </div>
-                    ))}
-                    
-                    <Button 
-                      onClick={() => setShowAddTaskModal(true)} 
-                      className="w-full"
-                      variant="outline"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Priority Task
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* All Projects Overview */}
-                <Card className="mt-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <CheckCircle className="w-5 h-5 mr-2" />
-                      All Projects
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-3 gap-4 mb-6">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold">{tasks.filter(t => t.status === 'active').length}</div>
-                        <div className="text-sm text-gray-500">Total</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-red-600">
-                          {tasks.filter(t => t.priority === 'critical' && t.status === 'active').length}
-                        </div>
-                        <div className="text-sm text-gray-500">Critical</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-green-600">
-                          {Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)}%
-                        </div>
-                        <div className="text-sm text-gray-500">Complete</div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {tasks.filter(t => t.status === 'active').map(task => (
-                        <div key={task.id} className="flex items-center justify-between p-3 border rounded">
-                          <div className="flex-1">
-                            <h4 className="font-medium">{task.title}</h4>
-                            <div className="text-sm text-gray-500">{task.deadline}</div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge className={getPriorityColor(task.priority)}>
-                              {task.priority}
-                            </Badge>
-                            <Button size="sm" variant="ghost" onClick={() => completeTask(task.id)}>
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => editTask(task)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => archiveTask(task.id)}>
-                              <Archive className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <Button 
-                      onClick={() => setCurrentView('tasks')} 
-                      variant="outline" 
-                      className="w-full mt-4"
-                    >
-                      View All Tasks
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right Sidebar */}
-              <div className="space-y-6">
-                {/* AI Productivity Coach */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Bot className="w-5 h-5 mr-2" />
-                      AI Productivity Coach
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="bg-blue-50 p-3 rounded-lg">
-                        <p className="text-sm"><strong>Focus Reminder:</strong> You have 2 critical deadlines this week. Consider time-blocking your calendar for deep work sessions.</p>
-                      </div>
-                      <div className="bg-green-50 p-3 rounded-lg">
-                        <p className="text-sm"><strong>Progress Update:</strong> Great job completing the Lemonade agency meeting! Next up: JET task list preparation.</p>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          onClick={() => sendCoachingMessage('prioritize my tasks')}
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditTask(task)}
                         >
-                          <Target className="w-4 h-4 mr-1" />
-                          Prioritize
+                          <Edit className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          onClick={() => sendCoachingMessage('optimize my schedule')}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCompleteTask(task.id)}
                         >
-                          <Clock className="w-4 h-4 mr-1" />
-                          Schedule
+                          <CheckCircle className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleArchiveTask(task.id)}
+                        >
+                          <Archive className="w-4 h-4" />
                         </Button>
                       </div>
-
-                      <Button 
-                        onClick={() => setCurrentView('coaching')} 
-                        className="w-full"
-                        variant="outline"
-                      >
-                        <MessageSquare className="w-4 h-4 mr-2" />
-                        Open Coach Chat
-                      </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                  ))}
+                </div>
+                
+                <div className="mt-6 flex space-x-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setCurrentView('tasks')}
+                    className="flex-1"
+                  >
+                    View All Tasks
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => sendAIMessage("Help me prioritize my tasks for today")}
+                    className="flex-1"
+                  >
+                    <Target className="w-4 h-4 mr-2" />
+                    Prioritize
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => sendAIMessage("Optimize my schedule for maximum productivity")}
+                    className="flex-1"
+                  >
+                    <Clock className="w-4 h-4 mr-2" />
+                    Schedule
+                  </Button>
+                  <Button 
+                    onClick={() => setShowCoachChat(true)}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Open Coach Chat
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
-                {/* Today's Schedule */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center">
-                      <Calendar className="w-5 h-5 mr-2" />
-                      Today's Schedule
-                    </CardTitle>
+            {/* AI Productivity Coach */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Bot className="w-5 h-5" />
+                  <span>AI Productivity Coach</span>
+                  {import.meta.env.VITE_GEMINI_API_KEY && (
+                    <Badge className="bg-green-100 text-green-800">
+                      <Zap className="w-3 h-3 mr-1" />
+                      Gemini AI
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Focus Reminder:</strong> You have {taskStats.critical} critical deadlines this week. 
+                      Consider time-blocking your calendar for deep work sessions.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <p className="text-sm text-green-800">
+                      <strong>Progress Update:</strong> Great job completing the Lemonade agency meeting! 
+                      Next up: JET task list preparation.
+                    </p>
+                  </div>
+
+                  <div className="flex space-x-3">
                     <Button 
-                      size="sm" 
                       variant="outline"
-                      onClick={() => setCurrentView('calendar')}
+                      onClick={() => sendAIMessage("Help me prioritize my tasks for today")}
+                      className="flex-1"
                     >
-                      View Full Calendar
+                      <Target className="w-4 h-4 mr-2" />
+                      Prioritize
                     </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {calendarEvents.map(event => (
-                      <div key={event.id} className="flex items-center space-x-3">
-                        <div className={`w-2 h-2 rounded-full ${
-                          event.status === 'completed' ? 'bg-green-500' :
-                          event.status === 'current' ? 'bg-blue-500' : 'bg-gray-300'
-                        }`} />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium">{event.start}</div>
-                          <div className="text-sm text-gray-600">{event.title}</div>
-                        </div>
-                        <Badge variant="outline" className={
-                          event.status === 'completed' ? 'text-green-600' :
-                          event.status === 'current' ? 'text-blue-600' : 'text-gray-600'
-                        }>
-                          {event.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
+                    <Button 
+                      variant="outline"
+                      onClick={() => sendAIMessage("Optimize my schedule for maximum productivity")}
+                      className="flex-1"
+                    >
+                      <Clock className="w-4 h-4 mr-2" />
+                      Schedule
+                    </Button>
+                    <Button 
+                      onClick={() => setShowCoachChat(true)}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700"
+                    >
+                      <MessageSquare className="w-4 h-4 mr-2" />
+                      Open Coach Chat
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Calendar View */}
-          <TabsContent value="calendar" className="space-y-6">
+            {/* Today's Schedule */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center">
-                  <Calendar className="w-5 h-5 mr-2" />
-                  {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                <CardTitle className="flex items-center space-x-2">
+                  <Calendar className="w-5 h-5" />
+                  <span>Today's Schedule</span>
                 </CardTitle>
+                <Button 
+                  variant="outline"
+                  onClick={() => setCurrentView('calendar')}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  View Full Calendar
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {getTodaysSchedule().map((event, index) => (
+                    <div key={event.id || index} className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg">
+                      <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">{event.title}</div>
+                        <div className="text-sm text-gray-600">
+                          {event.startTime} - {event.endTime || 'Ongoing'}
+                        </div>
+                      </div>
+                      <Badge className={
+                        event.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        event.status === 'current' ? 'bg-blue-100 text-blue-800' :
+                        'bg-gray-100 text-gray-800'
+                      }>
+                        {event.status || 'upcoming'}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {currentView === 'calendar' && (
+          <div className="space-y-6">
+            {/* Calendar Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <h2 className="text-2xl font-bold text-gray-900">Calendar</h2>
                 <div className="flex items-center space-x-2">
-                  <Button 
-                    size="sm" 
+                  <Button
                     variant="outline"
+                    size="sm"
                     onClick={() => {
-                      const newDate = new Date(selectedDate)
-                      newDate.setDate(selectedDate.getDate() - 7)
-                      setSelectedDate(newDate)
+                      const newWeek = new Date(currentWeek)
+                      newWeek.setDate(newWeek.getDate() - 7)
+                      setCurrentWeek(newWeek)
                     }}
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
-                  <Button 
-                    size="sm" 
+                  <Button
                     variant="outline"
-                    onClick={() => setSelectedDate(new Date())}
+                    size="sm"
+                    onClick={() => setCurrentWeek(new Date())}
                   >
                     Today
                   </Button>
-                  <Button 
-                    size="sm" 
+                  <Button
                     variant="outline"
+                    size="sm"
                     onClick={() => {
-                      const newDate = new Date(selectedDate)
-                      newDate.setDate(selectedDate.getDate() + 7)
-                      setSelectedDate(newDate)
+                      const newWeek = new Date(currentWeek)
+                      newWeek.setDate(newWeek.getDate() + 7)
+                      setCurrentWeek(newWeek)
                     }}
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
-                  <div className="flex">
-                    <Button 
-                      size="sm" 
-                      variant={calendarView === 'day' ? 'default' : 'outline'}
-                      onClick={() => setCalendarView('day')}
-                    >
-                      Day
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant={calendarView === 'week' ? 'default' : 'outline'}
-                      onClick={() => setCalendarView('week')}
-                    >
-                      Week
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant={calendarView === 'month' ? 'default' : 'outline'}
-                      onClick={() => setCalendarView('month')}
-                    >
-                      Month
-                    </Button>
-                  </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                {/* Google Calendar-style Week View */}
-                <div className="border rounded-lg overflow-hidden">
-                  {/* Header with days */}
-                  <div className="grid grid-cols-8 border-b bg-gray-50">
-                    <div className="p-3 text-sm font-medium text-gray-500">Time</div>
-                    {weekDays.map((day, index) => (
-                      <div key={index} className="p-3 text-center border-l">
-                        <div className="text-sm text-gray-500">
-                          {day.toLocaleDateString('en-US', { weekday: 'short' })}
-                        </div>
-                        <div className={`text-lg font-semibold ${
-                          day.toDateString() === new Date().toDateString() 
-                            ? 'text-blue-600' 
-                            : 'text-gray-900'
-                        }`}>
-                          {day.getDate()}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <div className="text-lg font-medium text-gray-700">
+                  {currentWeek.toLocaleDateString('en-US', { 
+                    month: 'long', 
+                    year: 'numeric' 
+                  })}
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                <Select value={calendarView} onValueChange={setCalendarView}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">Day</SelectItem>
+                    <SelectItem value="week">Week</SelectItem>
+                    <SelectItem value="month">Month</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-                  {/* Time slots */}
-                  {timeSlots.map((time, timeIndex) => (
-                    <div key={timeIndex} className="grid grid-cols-8 border-b">
-                      <div className="p-3 text-sm text-gray-500 border-r bg-gray-50">
-                        {time}
+            {/* Google Calendar Integration Panel */}
+            <CalendarIntegration onEventsUpdate={handleCalendarEventsUpdate} />
+
+            {/* Calendar Grid */}
+            <Card>
+              <CardContent className="p-0">
+                <div className="grid grid-cols-8 border-b">
+                  <div className="p-4 text-sm font-medium text-gray-500 border-r">Time</div>
+                  {getWeekDays().map((day, index) => (
+                    <div key={index} className="p-4 text-center border-r last:border-r-0">
+                      <div className="text-sm font-medium text-gray-900">
+                        {day.toLocaleDateString('en-US', { weekday: 'short' })}
                       </div>
-                      {weekDays.map((day, dayIndex) => (
-                        <div key={dayIndex} className="p-2 border-l min-h-[60px] relative">
-                          {/* Show events for today */}
-                          {day.toDateString() === new Date().toDateString() && 
-                           calendarEvents
-                             .filter(event => event.start.startsWith(time.split(':')[0]))
-                             .map(event => (
-                               <div 
-                                 key={event.id}
-                                 className={`absolute inset-x-1 top-1 p-1 rounded text-xs ${
-                                   event.type === 'meeting' 
-                                     ? 'bg-blue-100 text-blue-800' 
-                                     : 'bg-green-100 text-green-800'
-                                 }`}
-                               >
-                                 {event.title}
-                               </div>
-                             ))
-                          }
-                        </div>
-                      ))}
+                      <div className={`text-lg font-bold mt-1 ${
+                        day.toDateString() === new Date().toDateString() 
+                          ? 'text-blue-600' 
+                          : 'text-gray-700'
+                      }`}>
+                        {day.getDate()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Time slots */}
+                <div className="max-h-96 overflow-y-auto">
+                  {Array.from({ length: 12 }, (_, i) => i + 8).map(hour => (
+                    <div key={hour} className="grid grid-cols-8 border-b last:border-b-0">
+                      <div className="p-3 text-sm text-gray-500 border-r">
+                        {hour === 12 ? '12:00 PM' : hour > 12 ? `${hour - 12}:00 PM` : `${hour}:00 AM`}
+                      </div>
+                      {getWeekDays().map((day, dayIndex) => {
+                        const dayEvents = getEventsForDay(day).filter(event => {
+                          const eventHour = new Date(event.start).getHours()
+                          return eventHour === hour
+                        })
+                        
+                        return (
+                          <div key={dayIndex} className="p-2 border-r last:border-r-0 min-h-[60px]">
+                            {dayEvents.map((event, eventIndex) => (
+                              <div
+                                key={eventIndex}
+                                className="bg-blue-100 text-blue-800 text-xs p-2 rounded mb-1 cursor-pointer hover:bg-blue-200"
+                                title={event.description}
+                              >
+                                <div className="font-medium truncate">{event.title}</div>
+                                <div className="text-xs opacity-75">
+                                  {event.startTime} - {event.endTime}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })}
                     </div>
                   ))}
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+          </div>
+        )}
 
-          {/* Tasks View */}
-          <TabsContent value="tasks" className="space-y-6">
+        {currentView === 'tasks' && (
+          <div className="space-y-6">
+            {/* Tasks Header */}
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900">Task Management</h2>
+              <Button 
+                onClick={() => setShowAddTask(true)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Task
+              </Button>
+            </div>
+
+            {/* Task Filters */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Task Management</CardTitle>
-                <Button onClick={() => setShowAddTaskModal(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Task
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {/* Filters */}
-                <div className="flex items-center space-x-4 mb-6">
+              <CardContent className="p-6">
+                <div className="flex items-center space-x-4">
                   <div className="flex-1">
-                    <Input
-                      placeholder="Search tasks..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="max-w-sm"
-                    />
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <Input
+                        placeholder="Search tasks..."
+                        value={taskSearch}
+                        onChange={(e) => setTaskSearch(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
                   </div>
-                  <Select value={taskFilter.status} onValueChange={(value) => setTaskFilter(prev => ({ ...prev, status: value }))}>
-                    <SelectTrigger className="w-40">
+                  
+                  <Select value={taskFilter} onValueChange={setTaskFilter}>
+                    <SelectTrigger className="w-48">
+                      <Filter className="w-4 h-4 mr-2" />
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="all">All Tasks</SelectItem>
                       <SelectItem value="active">Active</SelectItem>
                       <SelectItem value="completed">Completed</SelectItem>
                       <SelectItem value="archived">Archived</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={taskFilter.priority} onValueChange={(value) => setTaskFilter(prev => ({ ...prev, priority: value }))}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Priorities</SelectItem>
-                      <SelectItem value="critical">Critical</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                      <SelectItem value="important">Important</SelectItem>
-                      <SelectItem value="strategic">Strategic</SelectItem>
-                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="critical">Critical Priority</SelectItem>
+                      <SelectItem value="urgent">Urgent Priority</SelectItem>
+                      <SelectItem value="important">Important Priority</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Task List */}
-                <div className="space-y-4">
-                  {filteredTasks.map(task => (
-                    <div key={task.id} className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-lg">{task.title}</h3>
-                          <p className="text-gray-600 mt-1">{task.description}</p>
-                          <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                            <span>Due: {task.deadline}</span>
-                            <span>⏱️ {task.estimatedHours}h</span>
-                            <span>Created: {task.createdAt.toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2 ml-4">
+            {/* Tasks List */}
+            <div className="space-y-4">
+              {filteredTasks.map((task) => (
+                <Card key={task.id}>
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3 mb-2">
+                          <h3 className="text-lg font-medium text-gray-900">{task.title}</h3>
                           <Badge className={getPriorityColor(task.priority)}>
                             {task.priority}
                           </Badge>
-                          <Badge variant="outline">
+                          <Badge className={
+                            task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            task.status === 'archived' ? 'bg-gray-100 text-gray-800' :
+                            'bg-blue-100 text-blue-800'
+                          }>
                             {task.status}
                           </Badge>
-                          <Button size="sm" variant="ghost" onClick={() => completeTask(task.id)}>
-                            <CheckCircle className="w-4 h-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => editTask(task)}>
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => archiveTask(task.id)}>
-                            <Archive className="w-4 h-4" />
-                          </Button>
+                        </div>
+                        
+                        <p className="text-gray-600 mb-3">{task.description}</p>
+                        
+                        <div className="flex items-center space-x-6 text-sm text-gray-500">
+                          <span className="flex items-center space-x-1">
+                            <Calendar className="w-4 h-4" />
+                            <span>Due: {task.deadline}</span>
+                          </span>
+                          <span className="flex items-center space-x-1">
+                            <Clock className="w-4 h-4" />
+                            <span>{task.estimatedHours} hours</span>
+                          </span>
+                          <span className="flex items-center space-x-1">
+                            <span>Created: {task.createdAt.toLocaleDateString()}</span>
+                          </span>
+                          {task.completedAt && (
+                            <span className="flex items-center space-x-1">
+                              <CheckCircle className="w-4 h-4" />
+                              <span>Completed: {task.completedAt.toLocaleDateString()}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
+                      
+                      <div className="flex items-center space-x-2 ml-4">
+                        {task.status === 'active' && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditTask(task)}
+                              title="Edit task"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleCompleteTask(task.id)}
+                              title="Mark as completed"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleArchiveTask(task.id)}
+                              title="Archive task"
+                            >
+                              <Archive className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteTask(task.id)}
+                          title="Delete task"
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-          {/* Analytics View */}
-          <TabsContent value="analytics" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {filteredTasks.length === 0 && (
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
-                  <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{tasks.length}</div>
-                  <p className="text-xs text-muted-foreground">
-                    {tasks.filter(t => t.status === 'active').length} active
+                <CardContent className="p-12 text-center">
+                  <CheckCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No tasks found</h3>
+                  <p className="text-gray-600 mb-4">
+                    {taskSearch || taskFilter !== 'all' 
+                      ? 'Try adjusting your search or filter criteria.'
+                      : 'Get started by adding your first task.'
+                    }
                   </p>
+                  <Button 
+                    onClick={() => setShowAddTask(true)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Task
+                  </Button>
                 </CardContent>
               </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)}%
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {tasks.filter(t => t.status === 'completed').length} completed
-                  </p>
-                </CardContent>
-              </Card>
+            )}
+          </div>
+        )}
 
+        {currentView === 'analytics' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-gray-900">Analytics & Insights</h2>
+            
+            {/* Analytics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Critical Tasks</CardTitle>
-                  <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                <CardHeader>
+                  <CardTitle className="text-lg">Task Completion Rate</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-red-600">
-                    {tasks.filter(t => t.priority === 'critical' && t.status === 'active').length}
+                  <div className="text-3xl font-bold text-green-600 mb-2">
+                    {Math.round((taskStats.completed / taskStats.total) * 100)}%
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Require immediate attention
+                  <p className="text-sm text-gray-600">
+                    {taskStats.completed} of {taskStats.total} tasks completed
                   </p>
                 </CardContent>
               </Card>
 
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Estimated Hours</CardTitle>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
+                <CardHeader>
+                  <CardTitle className="text-lg">Priority Breakdown</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">
-                    {tasks.filter(t => t.status === 'active').reduce((sum, task) => sum + task.estimatedHours, 0)}h
+                  <div className="space-y-2">
+                    {['critical', 'urgent', 'important', 'strategic', 'maintenance'].map(priority => {
+                      const count = tasks.filter(t => t.priority === priority && t.status === 'active').length
+                      return (
+                        <div key={priority} className="flex items-center justify-between">
+                          <span className="text-sm capitalize">{priority}</span>
+                          <Badge className={getPriorityColor(priority)}>{count}</Badge>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Remaining work
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Workload Estimation</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-blue-600 mb-2">
+                    {taskStats.totalHours}h
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Estimated remaining work
                   </p>
+                  <div className="mt-3 text-xs text-gray-500">
+                    ~{Math.ceil(taskStats.totalHours / 8)} working days
+                  </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Priority Breakdown */}
+            {/* Calendar Integration Analytics */}
             <Card>
               <CardHeader>
-                <CardTitle>Priority Breakdown</CardTitle>
+                <CardTitle>Calendar Integration Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="font-medium text-gray-900 mb-3">This Week's Events</h4>
+                    <div className="text-2xl font-bold text-purple-600 mb-2">
+                      {calendarEvents.length}
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      Events synced from Google Calendar
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-medium text-gray-900 mb-3">Integration Health</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Gemini AI</span>
+                        <Badge className={import.meta.env.VITE_GEMINI_API_KEY ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          {import.meta.env.VITE_GEMINI_API_KEY ? 'Connected' : 'Not Connected'}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Google Calendar</span>
+                        <Badge className={(import.meta.env.VITE_GOOGLE_CLIENT_ID && import.meta.env.VITE_GOOGLE_API_KEY) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          {(import.meta.env.VITE_GOOGLE_CLIENT_ID && import.meta.env.VITE_GOOGLE_API_KEY) ? 'Configured' : 'Not Configured'}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Productivity Insights */}
+            <Card>
+              <CardHeader>
+                <CardTitle>HAY Productivity Insights</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {['critical', 'urgent', 'important', 'strategic', 'maintenance'].map(priority => {
-                    const count = tasks.filter(t => t.priority === priority && t.status === 'active').length
-                    const percentage = tasks.length > 0 ? (count / tasks.filter(t => t.status === 'active').length) * 100 : 0
-                    
-                    return (
-                      <div key={priority} className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Badge className={getPriorityColor(priority)}>
-                            {priority}
-                          </Badge>
-                          <span className="text-sm">{count} tasks</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-32 bg-gray-200 rounded-full h-2">
-                            <div 
-                              className="bg-blue-600 h-2 rounded-full" 
-                              style={{ width: `${percentage}%` }}
-                            />
-                          </div>
-                          <span className="text-sm text-gray-500">{Math.round(percentage)}%</span>
-                        </div>
-                      </div>
-                    )
-                  })}
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-blue-900 mb-2">Marketing Focus Areas</h4>
+                    <p className="text-sm text-blue-800">
+                      Your current workload shows strong focus on customer journey optimization and digital campaigns. 
+                      Consider balancing hard infrastructure projects with soft community engagement initiatives.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-green-900 mb-2">Efficiency Recommendations</h4>
+                    <p className="text-sm text-green-800">
+                      With {taskStats.totalHours} hours of estimated work, consider time-blocking your calendar 
+                      and using the AI coach for task prioritization and schedule optimization.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-purple-900 mb-2">Integration Benefits</h4>
+                    <p className="text-sm text-purple-800">
+                      Calendar integration allows for better time management and meeting scheduling. 
+                      AI coaching provides context-aware productivity advice based on your HAY projects.
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
+      </main>
 
-        {/* AI Coaching Chat Modal */}
-        <Dialog open={currentView === 'coaching'} onOpenChange={(open) => !open && setCurrentView('dashboard')}>
-          <DialogContent className="max-w-2xl max-h-[80vh]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center">
-                <Bot className="w-5 h-5 mr-2" />
-                AI Productivity Coach
-                {isGeminiConnected && (
-                  <Badge variant="outline" className="ml-2 text-green-600 border-green-200">
-                    <Zap className="w-3 h-3 mr-1" />
-                    Gemini AI
-                  </Badge>
-                )}
-              </DialogTitle>
-            </DialogHeader>
-            
-            <div className="space-y-4">
-              {/* Quick Actions */}
-              <div className="grid grid-cols-2 gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => {
-                    setCoachingMessage('Help me prioritize my tasks for today')
-                    sendCoachingMessage()
-                  }}
-                >
-                  <Target className="w-4 h-4 mr-1" />
-                  Prioritize Tasks
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => {
-                    setCoachingMessage('Optimize my schedule for maximum productivity')
-                    sendCoachingMessage()
-                  }}
-                >
-                  <Clock className="w-4 h-4 mr-1" />
-                  Optimize Schedule
-                </Button>
-              </div>
-
-              {/* Chat History */}
-              <div className="h-96 overflow-y-auto border rounded-lg p-4 space-y-4">
-                {coachingHistory.map((msg, index) => (
-                  <div key={index} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                      msg.type === 'user' 
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-gray-100 text-gray-900'
-                    }`}>
-                      <div className="whitespace-pre-wrap text-sm">{msg.message}</div>
-                      <div className="text-xs opacity-70 mt-1">
-                        {msg.timestamp.toLocaleTimeString()}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Message Input */}
-              <div className="flex space-x-2">
-                <Input
-                  value={coachingMessage}
-                  onChange={(e) => setCoachingMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendCoachingMessage()}
-                  placeholder="Ask about priorities, scheduling, task breakdown, or meeting planning..."
-                  className="flex-1"
-                />
-                <Button onClick={sendCoachingMessage}>
-                  <MessageSquare className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Add/Edit Task Modal */}
-        <Dialog open={showAddTaskModal} onOpenChange={setShowAddTaskModal}>
-          <DialogContent>
+      {/* Add/Edit Task Modal */}
+      {showAddTask && (
+        <Dialog open={showAddTask} onOpenChange={setShowAddTask}>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
                 {editingTask ? 'Edit Task' : 'Add New Task'}
@@ -1068,35 +1109,60 @@ What would you like help with today?`
             
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Task Title</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Task Title
+                </label>
                 <Input
                   value={newTask.title}
-                  onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
+                  onChange={(e) => setNewTask({...newTask, title: e.target.value})}
                   placeholder="Enter task title..."
                 />
               </div>
               
               <div>
-                <label className="text-sm font-medium">Description</label>
-                <Input
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
                   value={newTask.description}
-                  onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Task description..."
+                  onChange={(e) => setNewTask({...newTask, description: e.target.value})}
+                  placeholder="Enter task description..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows="3"
                 />
               </div>
               
-              <div>
-                <label className="text-sm font-medium">Deadline</label>
-                <Input
-                  value={newTask.deadline}
-                  onChange={(e) => setNewTask(prev => ({ ...prev, deadline: e.target.value }))}
-                  placeholder="e.g., Next week, July 15, ASAP..."
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Deadline
+                  </label>
+                  <Input
+                    value={newTask.deadline}
+                    onChange={(e) => setNewTask({...newTask, deadline: e.target.value})}
+                    placeholder="e.g., Next week, Aug 15"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Estimated Hours
+                  </label>
+                  <Input
+                    type="number"
+                    value={newTask.estimatedHours}
+                    onChange={(e) => setNewTask({...newTask, estimatedHours: parseInt(e.target.value) || 1})}
+                    min="1"
+                    max="100"
+                  />
+                </div>
               </div>
               
               <div>
-                <label className="text-sm font-medium">Priority Level</label>
-                <Select value={newTask.priority} onValueChange={(value) => setNewTask(prev => ({ ...prev, priority: value }))}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Priority Level
+                </label>
+                <Select value={newTask.priority} onValueChange={(value) => setNewTask({...newTask, priority: value})}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1110,32 +1176,136 @@ What would you like help with today?`
                 </Select>
               </div>
               
-              <div>
-                <label className="text-sm font-medium">Estimated Hours</label>
-                <Input
-                  type="number"
-                  value={newTask.estimatedHours}
-                  onChange={(e) => setNewTask(prev => ({ ...prev, estimatedHours: parseInt(e.target.value) || 0 }))}
-                  placeholder="2"
-                />
-              </div>
-              
-              <div className="flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => {
-                  setShowAddTaskModal(false)
-                  setEditingTask(null)
-                  setNewTask({ title: '', deadline: '', priority: 'important', estimatedHours: 2, description: '' })
-                }}>
-                  Cancel
-                </Button>
-                <Button onClick={editingTask ? updateTask : addTask}>
+              <div className="flex space-x-3 pt-4">
+                <Button
+                  onClick={editingTask ? handleUpdateTask : handleAddTask}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  disabled={!newTask.title.trim()}
+                >
                   {editingTask ? 'Update Task' : 'Add Task'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowAddTask(false)
+                    setEditingTask(null)
+                    setNewTask({
+                      title: '',
+                      description: '',
+                      deadline: '',
+                      estimatedHours: 1,
+                      priority: 'important'
+                    })
+                  }}
+                  className="flex-1"
+                >
+                  Cancel
                 </Button>
               </div>
             </div>
           </DialogContent>
         </Dialog>
-      </main>
+      )}
+
+      {/* AI Coach Chat Modal */}
+      {showCoachChat && (
+        <Dialog open={showCoachChat} onOpenChange={setShowCoachChat}>
+          <DialogContent className="sm:max-w-2xl sm:max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center space-x-2">
+                <Bot className="w-5 h-5" />
+                <span>AI Productivity Coach</span>
+                {import.meta.env.VITE_GEMINI_API_KEY && (
+                  <Badge className="bg-green-100 text-green-800">
+                    <Zap className="w-3 h-3 mr-1" />
+                    Gemini AI
+                  </Badge>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="flex flex-col h-96">
+              {/* Quick Actions */}
+              <div className="flex space-x-2 mb-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendAIMessage("Help me prioritize my tasks for today")}
+                  className="text-xs"
+                >
+                  <Target className="w-3 h-3 mr-1" />
+                  Prioritize Tasks
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendAIMessage("Optimize my schedule for maximum productivity")}
+                  className="text-xs"
+                >
+                  <Clock className="w-3 h-3 mr-1" />
+                  Optimize Schedule
+                </Button>
+              </div>
+              
+              {/* Chat Messages */}
+              <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4 bg-gray-50 rounded-lg">
+                {chatMessages.map((message, index) => (
+                  <div
+                    key={index}
+                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                        message.type === 'user'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-900 border'
+                      }`}
+                    >
+                      <p className="text-sm whitespace-pre-wrap">{message.message}</p>
+                      <p className="text-xs opacity-75 mt-1">
+                        {message.timestamp.toLocaleTimeString('en-US', { 
+                          hour: 'numeric', 
+                          minute: '2-digit',
+                          hour12: true 
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                
+                {isAIResponding && (
+                  <div className="flex justify-start">
+                    <div className="bg-white text-gray-900 border px-4 py-2 rounded-lg">
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        <span className="text-sm">AI is thinking...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Chat Input */}
+              <form onSubmit={handleChatSubmit} className="flex space-x-2">
+                <Input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask about priorities, scheduling, task breakdown, or more..."
+                  className="flex-1"
+                  disabled={isAIResponding}
+                />
+                <Button 
+                  type="submit" 
+                  disabled={!chatInput.trim() || isAIResponding}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                </Button>
+              </form>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
